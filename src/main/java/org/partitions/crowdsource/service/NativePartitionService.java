@@ -1,21 +1,19 @@
 package org.partitions.crowdsource.service;
 
 import io.reactivex.Observable;
-import io.reactivex.internal.schedulers.ComputationScheduler;
 import io.reactivex.schedulers.Schedulers;
-import org.hibernate.annotations.Check;
 import org.jgrapht.Graph;
-import org.jgrapht.graph.DefaultEdge;
 import org.jgrapht.graph.DefaultWeightedEdge;
 import org.jgrapht.graph.SimpleGraph;
 import org.partitions.crowdsource.Checkins;
 import org.partitions.crowdsource.CheckinsRepository;
+import org.partitions.crowdsource.Partition;
+import org.partitions.crowdsource.PartitionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.stream.IntStream;
 
 /**
  * Created by Monjur-E-Morshed on 12-Feb-18.
@@ -24,6 +22,8 @@ import java.util.stream.IntStream;
 public class NativePartitionService {
   @Autowired
   CheckinsRepository mCheckinsRepository;
+  @Autowired
+  PartitionRepository mPartitionRepository;
 
   public List<Checkins> getListWithDateObject(List<Checkins> pCheckins){
     Observable<Checkins> observable = Observable.fromIterable(pCheckins);
@@ -67,13 +67,17 @@ public class NativePartitionService {
   }
 
 
-  public void assignPartitions( List<Checkins> pCheckinsList){
+  public void assignPartitions(List<Checkins> pCheckinsList, Integer pTheresholdValue) {
+    List<Checkins> updatedList = getUpdatedList(pCheckinsList, pTheresholdValue);
+    mCheckinsRepository.save(updatedList);
+  }
+
+  private List<Checkins> getUpdatedList(List<Checkins> pCheckinsList, Integer pTheresholdValue) {
     int partitionNumber=1;
-    Integer pThresholdValue=3000;
     int counter=1;
     List<Checkins> updatedList = new ArrayList<>();
     while(pCheckinsList.size()!=0){
-      if(counter>500){
+      if (counter > pTheresholdValue) {
         counter=1;
         partitionNumber+=1;
       }
@@ -96,7 +100,76 @@ public class NativePartitionService {
       counter+=2;
       updatedList.add(memberToBeDeleted);
     }
-    mCheckinsRepository.save(updatedList);
+    return updatedList;
+  }
+
+
+  private List<Checkins> getUpdatedListForBisection(List<Checkins> pCheckinsList, Integer pTheresholdValue) {
+    int partitionNumber = 1;
+    int counter = 1;
+    List<Checkins> updatedList = new ArrayList<>();
+    while ((updatedList.size() + 2) <= pTheresholdValue) {
+      if (counter > pTheresholdValue) {
+        counter = 1;
+        partitionNumber += 1;
+      }
+      Checkins deletedCheckin = pCheckinsList.remove(0);
+      deletedCheckin.setNaiveLal(partitionNumber);
+      updatedList.add(deletedCheckin);
+      Map<Double, Checkins> mapDistance = new HashMap<>();
+      List<Double> distanceList = new ArrayList<>();
+      for (int i = 0; i < pCheckinsList.size(); i++) {
+        Checkins checkin = pCheckinsList.get(i);
+        double distance = distance(deletedCheckin.getLatitude(), deletedCheckin.getlongitude(), checkin.getLatitude(), checkin.getlongitude(), 'N');
+        mapDistance.put(distance, checkin);
+        distanceList.add(distance);
+      }
+      Collections.sort(distanceList);
+      if (distanceList.size() == 0) break;
+      Checkins memberToBeDeleted = mapDistance.get(distanceList.get(0));
+      memberToBeDeleted.setNaiveLal(partitionNumber);
+      pCheckinsList.remove(memberToBeDeleted);
+      counter += 2;
+      updatedList.add(memberToBeDeleted);
+    }
+    return updatedList;
+  }
+
+  public void bisectionLals(List<Checkins> pCheckinsList, Integer pThreshold) {
+    recursiveBisection(pCheckinsList, pCheckinsList.size(), pThreshold);
+  }
+
+
+  public void recursiveBisection(List<Checkins> pCheckinsList, Integer pCurrentWorkLoad, Integer finalThresholdvalue) {
+    Integer pTheresholdvalue = pCurrentWorkLoad / 2;
+    if (pCurrentWorkLoad > pTheresholdvalue) {
+      List<Checkins> leftPartition = getUpdatedListForBisection(pCheckinsList, pTheresholdvalue);
+      List<Checkins> rightPartition = getUpdatedListForBisection(pCheckinsList, pTheresholdvalue);
+
+      if (leftPartition.size() > finalThresholdvalue)
+        recursiveBisection(leftPartition, leftPartition.size(), finalThresholdvalue);
+      else {
+        List<Partition> partitions = mPartitionRepository.findAll();
+        Integer partitionNumber = partitions.size() + 1;
+        Partition partition = new Partition();
+        partition.setPartition(partitionNumber);
+        mPartitionRepository.save(partition);
+        leftPartition.parallelStream().forEach(p -> p.setBisectionLal(partitionNumber));
+        mCheckinsRepository.save(leftPartition);
+      }
+
+      if (rightPartition.size() > finalThresholdvalue)
+        recursiveBisection(rightPartition, rightPartition.size(), finalThresholdvalue);
+      else {
+        List<Partition> partitions = mPartitionRepository.findAll();
+        Integer partitionNumber = partitions.size() + 1;
+        Partition partition = new Partition();
+        partition.setPartition(partitionNumber);
+        mPartitionRepository.save(partition);
+        rightPartition.parallelStream().forEach(p -> p.setBisectionLal(partitionNumber));
+        mCheckinsRepository.save(rightPartition);
+      }
+    }
   }
 
 

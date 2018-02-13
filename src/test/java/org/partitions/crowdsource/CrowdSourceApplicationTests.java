@@ -1,6 +1,5 @@
 package org.partitions.crowdsource;
 
-import org.hibernate.annotations.Check;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -22,6 +21,8 @@ public class CrowdSourceApplicationTests {
   CheckinsRepository mCheckinsRepository;
   @Autowired
   NativePartitionService mNativePartitionService;
+  @Autowired
+  PartitionRepository mPartitionRepository;
 
 	@Test
 	public void contextLoads() {
@@ -58,8 +59,17 @@ public class CrowdSourceApplicationTests {
     checkinsList.sort((o1,o2)->o1.getDate().compareTo(o2.getDate()));
     //Map<Date, List<Checkins>> listMap = mNativePartitionService.getGroupBy(checkinsList);
 
-    mNativePartitionService.assignPartitions(checkinsList.subList(0,5000));
+    mNativePartitionService.assignPartitions(checkinsList.subList(0, 5000), 500);
 
+  }
+
+  @Test
+  public void testBisectionPartitions() {
+    Iterable<Checkins> checkins = mCheckinsRepository.findAll();
+    List<Checkins> checkinsList = CrowdSourceUtils.convertFromIterableToList(checkins);
+    mPartitionRepository.deleteAll();
+    checkinsList.sort((o1, o2) -> o1.getDate().compareTo(o2.getDate()));
+    mNativePartitionService.bisectionLals(checkinsList.subList(0, 5000), 500);
   }
 
 
